@@ -1,0 +1,11 @@
+{
+  "name": "Remix DuoLove - Couple Space",
+  "description": "A private web app for couples to chat in real-time, share photos, and make voice and video calls with direct link pairing.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

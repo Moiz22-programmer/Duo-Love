@@ -1,0 +1,56 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "coupleId": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "statusMessage": { "type": "string" }
+      },
+      "required": ["uid", "displayName", "email"]
+    },
+    "couples": {
+      "title": "Couple Space",
+      "description": "Shared private space for two partners",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "members": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "joinToken": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "anniversaryDate": { "type": "string" }
+      },
+      "required": ["id", "members"]
+    },
+    "messages": {
+      "title": "Chat Message",
+      "description": "Messages exchanged in a couple space",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "coupleId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "type": { "type": "string" },
+        "text": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "audioUrl": { "type": "string" },
+        "reactions": { "type": "object" },
+        "readBy": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "coupleId", "senderId", "createdAt"]
+    }
+  }
+}

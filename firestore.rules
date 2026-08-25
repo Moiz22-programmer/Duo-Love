@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Couples collection and messages subcollection
+    match /couples/{coupleId} {
+      allow read, write: if true;
+
+      match /messages/{messageId} {
+        allow read, write: if true;
+      }
+
+      match /{subcollection=**} {
+        allow read, write: if true;
+      }
+    }
+
+    // Top-level Messages collection
+    match /messages/{messageId} {
+      allow read, write: if true;
+    }
+
+    // Catch-all for all other collections
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
