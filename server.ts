@@ -173,10 +173,20 @@ function registerStreakInteraction(couple: CoupleDoc, uid: string): LoveStreakDo
 }
 
 // Helper to resolve or create a stable couple space + real partner for any user
+function getDeterministicCoupleId(uidA: string, uidB: string): string {
+  const sorted = [uidA, uidB].sort();
+  return `couple_${sorted[0]}_${sorted[1]}`;
+}
+
 function resolveCoupleAndPartner(user: UserDoc): { couple: CoupleDoc; partner: UserDoc | null } {
   let couple: CoupleDoc | undefined;
   if (user.coupleId) {
     couple = couples.get(user.coupleId);
+  }
+
+  // Check if member in any existing space with 2 members
+  if (!couple) {
+    couple = Array.from(couples.values()).find((c) => c.members.includes(user.uid) && c.members.length === 2);
   }
 
   // Check if member in any existing space
@@ -186,7 +196,7 @@ function resolveCoupleAndPartner(user: UserDoc): { couple: CoupleDoc; partner: U
 
   // If still no space, create an isolated private couple space for this user
   if (!couple) {
-    const coupleId = `couple_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const coupleId = `couple_${user.uid}`;
     const joinToken = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
     couple = {
       id: coupleId,
@@ -205,8 +215,8 @@ function resolveCoupleAndPartner(user: UserDoc): { couple: CoupleDoc; partner: U
     };
     couples.set(coupleId, couple);
     couplesByToken.set(joinToken, coupleId);
-    messages.set(coupleId, []);
-    presence.set(coupleId, new Map());
+    if (!messages.has(coupleId)) messages.set(coupleId, []);
+    if (!presence.has(coupleId)) presence.set(coupleId, new Map());
   }
 
   user.coupleId = couple.id;
@@ -237,6 +247,28 @@ function broadcastToCouple(coupleId: string, event: string, data: any) {
       } catch (e) {}
     });
   }
+  // Also send to global listeners
+  globalSseClients.forEach((res) => {
+    try {
+      res.write(payload);
+    } catch (e) {}
+  });
+}
+
+function broadcastGlobal(event: string, data: any) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  globalSseClients.forEach((res) => {
+    try {
+      res.write(payload);
+    } catch (e) {}
+  });
+  sseClients.forEach((clientSet) => {
+    clientSet.forEach((res) => {
+      try {
+        res.write(payload);
+      } catch (e) {}
+    });
+  });
 }
 
 // ---------------- API ROUTES ----------------
@@ -254,6 +286,7 @@ app.post('/api/users/sync', (req, res) => {
   const cleanEmail = (email || `${uid}@example.com`).trim().toLowerCase();
   const user = ensureUserUpdated(uid, cleanEmail, displayName, photoUrl);
 
+  broadcastGlobal('users_updated', { users: Array.from(users.values()) });
   res.json({ user });
 });
 
@@ -264,7 +297,7 @@ app.post('/api/couples/create', (req, res) => {
 
   // Generate unique joinToken
   const joinToken = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-  const coupleId = `couple_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const coupleId = `couple_${uid}`;
 
   const couple: CoupleDoc = {
     id: coupleId,
@@ -276,8 +309,8 @@ app.post('/api/couples/create', (req, res) => {
 
   couples.set(coupleId, couple);
   couplesByToken.set(joinToken, coupleId);
-  messages.set(coupleId, []);
-  presence.set(coupleId, new Map());
+  if (!messages.has(coupleId)) messages.set(coupleId, []);
+  if (!presence.has(coupleId)) presence.set(coupleId, new Map());
 
   // Update user's coupleId
   const user = users.get(uid);
@@ -351,6 +384,9 @@ app.post('/api/auth/register', (req, res) => {
   // Resolve or pair couple space
   const { couple, partner } = resolveCoupleAndPartner(user);
 
+  broadcastGlobal('users_updated', { users: Array.from(users.values()) });
+  broadcastGlobal('user_joined', { user });
+
   res.json({
     message: 'Account registered successfully',
     user: {
@@ -387,6 +423,8 @@ app.post('/api/auth/login', (req, res) => {
   // Resolve couple space & partner
   const { couple, partner } = resolveCoupleAndPartner(user);
 
+  broadcastGlobal('users_updated', { users: Array.from(users.values()) });
+
   res.json({
     message: 'Signed in successfully',
     user: {
@@ -411,6 +449,8 @@ app.post('/api/auth/google', (req, res) => {
   const user = ensureUserUpdated(uid, cleanEmail, displayName, photoUrl);
   const { couple, partner } = resolveCoupleAndPartner(user);
 
+  broadcastGlobal('users_updated', { users: Array.from(users.values()) });
+
   res.json({
     user: {
       uid: user.uid,
@@ -434,6 +474,7 @@ app.post('/api/users/login', (req, res) => {
   const user = ensureUserUpdated(uid, cleanEmail, displayName, photoUrl);
   if (statusMessage) user.statusMessage = statusMessage;
 
+  broadcastGlobal('users_updated', { users: Array.from(users.values()) });
   res.json({ user });
 });
 
@@ -449,12 +490,10 @@ app.post('/api/couples/direct-connect', (req, res) => {
   const { userA, userB } = req.body;
   if (!userA || !userB) return res.status(400).json({ error: 'userA and userB required' });
 
-  let couple = Array.from(couples.values()).find(
-    (c) => c.members.includes(userA) && c.members.includes(userB)
-  );
+  const coupleId = getDeterministicCoupleId(userA, userB);
+  let couple = couples.get(coupleId);
 
   if (!couple) {
-    const coupleId = `couple_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     couple = {
       id: coupleId,
       members: [userA, userB],
@@ -471,8 +510,8 @@ app.post('/api/couples/direct-connect', (req, res) => {
       },
     };
     couples.set(coupleId, couple);
-    messages.set(coupleId, []);
-    presence.set(coupleId, new Map());
+    if (!messages.has(coupleId)) messages.set(coupleId, []);
+    if (!presence.has(coupleId)) presence.set(coupleId, new Map());
   } else {
     if (!couple.members.includes(userA)) couple.members.push(userA);
     if (!couple.members.includes(userB)) couple.members.push(userB);
@@ -485,12 +524,13 @@ app.post('/api/couples/direct-connect', (req, res) => {
   if (uB) uB.coupleId = couple.id;
 
   broadcastToCouple(couple.id, 'couple_updated', { couple });
+  broadcastGlobal('couple_updated', { couple, members: [userA, userB] });
 
   const partnerDoc = uB || null;
   res.json({ couple, partner: partnerDoc });
 });
 
-// Connect by partner email (e.g. moiz88053@gmail.com)
+// Connect by partner email (e.g. partner@example.com)
 app.post('/api/couples/connect-by-email', (req, res) => {
   const { currentUid, partnerEmail } = req.body;
   if (!currentUid || !partnerEmail) {
@@ -513,15 +553,13 @@ app.post('/api/couples/connect-by-email', (req, res) => {
     };
     users.set(pUid, partnerUser);
     usersByEmail.set(cleanEmail, partnerUser);
+    broadcastGlobal('users_updated', { users: Array.from(users.values()) });
   }
 
-  // Find or create couple space for currentUid and partnerUser.uid
-  let couple = Array.from(couples.values()).find(
-    (c) => c.members.includes(currentUid) && c.members.includes(partnerUser!.uid)
-  );
+  const coupleId = getDeterministicCoupleId(currentUid, partnerUser.uid);
+  let couple = couples.get(coupleId);
 
   if (!couple) {
-    const coupleId = `couple_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     couple = {
       id: coupleId,
       members: [currentUid, partnerUser.uid],
@@ -538,8 +576,8 @@ app.post('/api/couples/connect-by-email', (req, res) => {
       },
     };
     couples.set(coupleId, couple);
-    messages.set(coupleId, []);
-    presence.set(coupleId, new Map());
+    if (!messages.has(coupleId)) messages.set(coupleId, []);
+    if (!presence.has(coupleId)) presence.set(coupleId, new Map());
   }
 
   const currUser = users.get(currentUid);
@@ -547,6 +585,7 @@ app.post('/api/couples/connect-by-email', (req, res) => {
   partnerUser.coupleId = couple.id;
 
   broadcastToCouple(couple.id, 'couple_updated', { couple });
+  broadcastGlobal('couple_updated', { couple, members: [currentUid, partnerUser.uid] });
 
   res.json({
     couple,

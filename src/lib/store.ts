@@ -255,6 +255,25 @@ export function useDuoLoveStore() {
     }
   }, []);
 
+  // Broadcast event across tabs & windows via BroadcastChannel & localStorage
+  const notifyRealtime = useCallback((event: string, payload: any) => {
+    try {
+      if (broadcastRef.current) {
+        broadcastRef.current.postMessage({ event, payload });
+      }
+    } catch (e) {}
+
+    try {
+      // Cross-tab fallback via storage event
+      localStorage.setItem('duolove_rt_sync', JSON.stringify({
+        event,
+        payload,
+        senderUid: currentUser?.uid,
+        time: Date.now(),
+      }));
+    } catch (e) {}
+  }, [currentUser]);
+
   // Fetch couple info & partner profile
   const refreshCoupleInfo = useCallback(async (cId: string) => {
     try {
@@ -367,6 +386,8 @@ export function useDuoLoveStore() {
   const directConnectUsers = useCallback(async (targetUid: string) => {
     if (!currentUser) return false;
     try {
+      const deterministicCoupleId = `couple_${[currentUser.uid, targetUid].sort().join('_')}`;
+
       // 1. Call Backend API
       try {
         const apiRes = await fetch('/api/couples/direct-connect', {
@@ -384,7 +405,7 @@ export function useDuoLoveStore() {
       }
 
       // 2. Firestore Sync
-      const { getDoc, setDoc, updateDoc, doc } = await import('firebase/firestore');
+      const { getDoc, setDoc, doc } = await import('firebase/firestore');
       
       const [userSnap, targetSnap] = await Promise.all([
         getDoc(doc(db, 'users', currentUser.uid)),
@@ -405,56 +426,33 @@ export function useDuoLoveStore() {
         };
       }
       
-      let coupleId = targetUser.coupleId || (userSnap.exists() ? userSnap.data()?.coupleId : null);
-      let coupleSpaceData: CoupleSpace;
+      const coupleSpaceData: CoupleSpace = {
+        id: deterministicCoupleId,
+        members: [currentUser.uid, targetUid],
+        joinToken: `direct_${Date.now()}`,
+        createdAt: Date.now(),
+        anniversaryDate: new Date().toISOString().split('T')[0]
+      };
       
-      if (coupleId) {
-        const coupleSnap = await getDoc(doc(db, 'couples', coupleId));
-        if (coupleSnap.exists()) {
-          coupleSpaceData = coupleSnap.data() as CoupleSpace;
-          if (!coupleSpaceData.members.includes(currentUser.uid)) {
-            coupleSpaceData.members.push(currentUser.uid);
-          }
-          if (!coupleSpaceData.members.includes(targetUid)) {
-            coupleSpaceData.members.push(targetUid);
-          }
-          await updateDoc(doc(db, 'couples', coupleId), { members: coupleSpaceData.members });
-        } else {
-          coupleSpaceData = {
-            id: coupleId,
-            members: [currentUser.uid, targetUid],
-            joinToken: Math.random().toString(36).substring(2, 10),
-            createdAt: Date.now(),
-            anniversaryDate: new Date().toISOString().split('T')[0]
-          };
-          await setDoc(doc(db, 'couples', coupleId), coupleSpaceData);
-        }
-      } else {
-        coupleId = `couple_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-        coupleSpaceData = {
-          id: coupleId,
-          members: [currentUser.uid, targetUid],
-          joinToken: Math.random().toString(36).substring(2, 10),
-          createdAt: Date.now(),
-          anniversaryDate: new Date().toISOString().split('T')[0]
-        };
-        await setDoc(doc(db, 'couples', coupleId), coupleSpaceData);
-      }
+      await setDoc(doc(db, 'couples', deterministicCoupleId), coupleSpaceData, { merge: true });
       
-      const updatedUser = { ...currentUser, coupleId };
-      await setDoc(doc(db, 'users', currentUser.uid), { ...updatedUser, coupleId }, { merge: true });
-      await setDoc(doc(db, 'users', targetUid), { ...targetUser, coupleId }, { merge: true });
+      const updatedUser = { ...currentUser, coupleId: deterministicCoupleId };
+      const updatedTargetUser = { ...targetUser, coupleId: deterministicCoupleId };
+      await setDoc(doc(db, 'users', currentUser.uid), updatedUser, { merge: true });
+      await setDoc(doc(db, 'users', targetUid), updatedTargetUser, { merge: true });
       
       saveUser(updatedUser);
       saveCoupleSpace(coupleSpaceData);
       setPartner(targetUser);
-      fetchMessages(coupleId);
+      fetchMessages(deterministicCoupleId);
+
+      notifyRealtime('couple_updated', { couple: coupleSpaceData, members: [currentUser.uid, targetUid] });
       return true;
     } catch (e) {
       console.error("Direct connect failed:", e);
     }
     return false;
-  }, [currentUser, availableUsers, saveUser, saveCoupleSpace, fetchMessages]);
+  }, [currentUser, availableUsers, saveUser, saveCoupleSpace, fetchMessages, notifyRealtime]);
 
   // Connect directly with a partner by Email (e.g. partner@example.com)
   const connectPartnerByEmail = useCallback(async (partnerEmail: string) => {
@@ -481,7 +479,7 @@ export function useDuoLoveStore() {
       }
 
       // 2. Firestore Lookup & Link
-      const { getDocs, query, where, collection, getDoc, setDoc, updateDoc, doc } = await import('firebase/firestore');
+      const { getDocs, query, where, collection, getDoc, setDoc, doc } = await import('firebase/firestore');
       const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
       const snap = await getDocs(q);
       
@@ -491,9 +489,7 @@ export function useDuoLoveStore() {
       } else if (apiPartner) {
         targetUser = apiPartner;
       } else {
-        // Pre-create placeholder user for this partner so they are automatically paired on sign in
         const placeholderUid = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-        
         targetUser = {
           uid: placeholderUid,
           email: cleanEmail,
@@ -505,58 +501,35 @@ export function useDuoLoveStore() {
       }
       
       const targetUid = targetUser.uid;
-      let coupleId = targetUser.coupleId || currentUser.coupleId || apiCouple?.id;
-      let coupleSpaceData: CoupleSpace;
+      const deterministicCoupleId = `couple_${[currentUser.uid, targetUid].sort().join('_')}`;
       
-      if (coupleId) {
-        const coupleSnap = await getDoc(doc(db, 'couples', coupleId));
-        if (coupleSnap.exists()) {
-          coupleSpaceData = coupleSnap.data() as CoupleSpace;
-          if (!coupleSpaceData.members.includes(currentUser.uid)) {
-            coupleSpaceData.members.push(currentUser.uid);
-          }
-          if (!coupleSpaceData.members.includes(targetUid)) {
-            coupleSpaceData.members.push(targetUid);
-          }
-          await updateDoc(doc(db, 'couples', coupleId), { members: coupleSpaceData.members });
-        } else {
-          coupleSpaceData = apiCouple || {
-            id: coupleId,
-            members: [currentUser.uid, targetUid],
-            joinToken: Math.random().toString(36).substring(2, 10),
-            createdAt: Date.now(),
-            anniversaryDate: new Date().toISOString().split('T')[0]
-          };
-          await setDoc(doc(db, 'couples', coupleId), coupleSpaceData);
-        }
-      } else {
-        coupleId = `couple_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-        coupleSpaceData = {
-          id: coupleId,
-          members: [currentUser.uid, targetUid],
-          joinToken: Math.random().toString(36).substring(2, 10),
-          createdAt: Date.now(),
-          anniversaryDate: new Date().toISOString().split('T')[0]
-        };
-        await setDoc(doc(db, 'couples', coupleId), coupleSpaceData);
-      }
+      const coupleSpaceData: CoupleSpace = {
+        id: deterministicCoupleId,
+        members: [currentUser.uid, targetUid],
+        joinToken: `invite_${Date.now()}`,
+        createdAt: Date.now(),
+        anniversaryDate: new Date().toISOString().split('T')[0]
+      };
       
-      const updatedUser = { ...currentUser, coupleId };
-      const updatedPartner = { ...targetUser, coupleId };
+      await setDoc(doc(db, 'couples', deterministicCoupleId), coupleSpaceData, { merge: true });
       
+      const updatedUser = { ...currentUser, coupleId: deterministicCoupleId };
+      const updatedTargetUser = { ...targetUser, coupleId: deterministicCoupleId };
       await setDoc(doc(db, 'users', currentUser.uid), updatedUser, { merge: true });
-      await setDoc(doc(db, 'users', targetUid), updatedPartner, { merge: true });
+      await setDoc(doc(db, 'users', targetUid), updatedTargetUser, { merge: true });
       
       saveUser(updatedUser);
       saveCoupleSpace(coupleSpaceData);
-      setPartner(updatedPartner);
-      fetchMessages(coupleId);
+      setPartner(targetUser);
+      fetchMessages(deterministicCoupleId);
+
+      notifyRealtime('couple_updated', { couple: coupleSpaceData, members: [currentUser.uid, targetUid] });
       return true;
     } catch (e) {
       console.error("Connect by email failed:", e);
     }
     return false;
-  }, [currentUser, saveUser, saveCoupleSpace, fetchMessages]);
+  }, [currentUser, saveUser, saveCoupleSpace, fetchMessages, notifyRealtime]);
 
   const loginWithGoogle = useCallback(async (selectedUser?: User) => {
     if (selectedUser) {
@@ -971,25 +944,6 @@ export function useDuoLoveStore() {
     }
   }, [currentUser, coupleSpace, saveCoupleSpace]);
 
-  // Broadcast event across tabs & windows via BroadcastChannel & localStorage
-  const notifyRealtime = useCallback((event: string, payload: any) => {
-    try {
-      if (broadcastRef.current) {
-        broadcastRef.current.postMessage({ event, payload });
-      }
-    } catch (e) {}
-
-    try {
-      // Cross-tab fallback via storage event
-      localStorage.setItem('duolove_rt_sync', JSON.stringify({
-        event,
-        payload,
-        senderUid: currentUser?.uid,
-        time: Date.now(),
-      }));
-    } catch (e) {}
-  }, [currentUser]);
-
   // Send Message (Text, Photo, or Voice Note) with multi-layer Firestore, API & real-time sync
   const sendMessage = useCallback(async (
     text: string,
@@ -998,7 +952,31 @@ export function useDuoLoveStore() {
     audioUrl?: string,
     audioDuration?: number
   ) => {
-    if (!currentUser || !coupleSpace) return;
+    if (!currentUser) return;
+
+    // Resolve or determine couple space ID dynamically so messages NEVER drop
+    let activeSpace = coupleSpace;
+    let coupleId = activeSpace?.id;
+
+    if (!coupleId) {
+      const pUid = partner?.uid || (currentUser.coupleId ? currentUser.coupleId.replace('couple_', '') : null);
+      if (pUid && pUid !== currentUser.uid) {
+        coupleId = `couple_${[currentUser.uid, pUid].sort().join('_')}`;
+      } else if (currentUser.coupleId) {
+        coupleId = currentUser.coupleId;
+      } else {
+        coupleId = `couple_${currentUser.uid}`;
+      }
+
+      activeSpace = {
+        id: coupleId,
+        members: partner && partner.uid !== currentUser.uid ? [currentUser.uid, partner.uid] : [currentUser.uid],
+        joinToken: `token_${Date.now()}`,
+        createdAt: Date.now(),
+        anniversaryDate: new Date().toISOString().split('T')[0],
+      };
+      saveCoupleSpace(activeSpace);
+    }
 
     sounds.playSendSound();
 
@@ -1027,7 +1005,7 @@ export function useDuoLoveStore() {
     notifyRealtime('new_message', tempMsg);
 
     // 3. Post to Backend API Server (which broadcasts via SSE to all connected tabs/clients)
-    fetch(`/api/couples/${coupleSpace.id}/messages`, {
+    fetch(`/api/couples/${coupleId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(tempMsg),
@@ -1037,18 +1015,19 @@ export function useDuoLoveStore() {
 
     // 4. Save to Firestore collection couples/{coupleId}/messages in background
     try {
-      const docRef = doc(db, 'couples', coupleSpace.id, 'messages', msgId);
+      const { doc, setDoc } = await import('firebase/firestore');
+      const docRef = doc(db, 'couples', coupleId, 'messages', msgId);
       setDoc(docRef, tempMsg).catch((e) => {
         console.warn("Firestore setDoc subcollection notice:", e);
       });
 
       // Also persist to top-level messages collection for global queries
       const topDocRef = doc(db, 'messages', msgId);
-      setDoc(topDocRef, { ...tempMsg, coupleId: coupleSpace.id }).catch(() => {});
+      setDoc(topDocRef, { ...tempMsg, coupleId }).catch(() => {});
     } catch (e) {
       console.warn("Firestore message dispatch notice:", e);
     }
-  }, [currentUser, coupleSpace, notifyRealtime]);
+  }, [currentUser, coupleSpace, partner, saveCoupleSpace, notifyRealtime]);
 
   // Mark Messages as Read
   const markMessagesRead = useCallback(async () => {
@@ -1643,6 +1622,58 @@ export function useDuoLoveStore() {
     }
   }, [coupleSpace?.id, refreshCoupleInfo, fetchMessages, currentUser, saveCoupleSpace]);
 
+  // Global SSE listener for instant cross-tab and cross-user real-time discovery
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const globalEs = new EventSource('/api/stream/global');
+
+    const handleGlobalUsersUpdated = (e: any) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (Array.isArray(data.users)) {
+          const filtered = data.users.filter(
+            (u: User) => u && u.uid && u.uid !== currentUser.uid && u.email?.toLowerCase() !== currentUser.email?.toLowerCase()
+          );
+          setAvailableUsers(filtered);
+        }
+      } catch (err) {}
+    };
+
+    const handleGlobalUserJoined = (e: any) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.user && data.user.uid !== currentUser.uid && data.user.email?.toLowerCase() !== currentUser.email?.toLowerCase()) {
+          setAvailableUsers((prev) => {
+            if (prev.some((u) => u.uid === data.user.uid)) return prev;
+            return [...prev, data.user];
+          });
+        }
+      } catch (err) {}
+    };
+
+    const handleGlobalCoupleUpdated = (e: any) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.couple && data.members && data.members.includes(currentUser.uid)) {
+          saveCoupleSpace(data.couple);
+          if (data.couple.id) {
+            refreshCoupleInfo(data.couple.id);
+            fetchMessages(data.couple.id);
+          }
+        }
+      } catch (err) {}
+    };
+
+    globalEs.addEventListener('users_updated', handleGlobalUsersUpdated);
+    globalEs.addEventListener('user_joined', handleGlobalUserJoined);
+    globalEs.addEventListener('couple_updated', handleGlobalCoupleUpdated);
+
+    return () => {
+      globalEs.close();
+    };
+  }, [currentUser, saveCoupleSpace, refreshCoupleInfo, fetchMessages]);
+
   // Periodic partner & user state auto-sync fallback (gentle background sync)
   useEffect(() => {
     if (!currentUser) return;
@@ -1691,7 +1722,7 @@ export function useDuoLoveStore() {
     // Run immediately on mount or user change
     syncUserState();
 
-    const interval = setInterval(syncUserState, 15000);
+    const interval = setInterval(syncUserState, 4000);
     return () => clearInterval(interval);
   }, [currentUser, coupleSpace?.id, fetchAvailableUsers, refreshCoupleInfo, fetchMessages, saveCoupleSpace]);
 
