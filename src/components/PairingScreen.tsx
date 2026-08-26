@@ -25,8 +25,10 @@ export const PairingScreen: React.FC<Props> = ({
 }) => {
   const [loadingUid, setLoadingUid] = useState<string | null>(null);
   const [emailInput, setEmailInput] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [linkingEmail, setLinkingEmail] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [statusMsg, setStatusMsg] = useState('');
 
   useEffect(() => {
     fetchAvailableUsers();
@@ -41,10 +43,22 @@ export const PairingScreen: React.FC<Props> = ({
     }
   }, [coupleSpace, onCreateSpace]);
 
+  const filteredUsers = availableUsers.filter((u) => {
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      u.displayName?.toLowerCase().includes(term) ||
+      u.email?.toLowerCase().includes(term)
+    );
+  });
+
   const handleConnect = async (targetUid: string) => {
     setLoadingUid(targetUid);
-    await onDirectConnect(targetUid);
+    const ok = await onDirectConnect(targetUid);
     setLoadingUid(null);
+    if (ok) {
+      setStatusMsg('Connected! Entering sanctuary... ✨');
+    }
   };
 
   const handleEmailConnect = async (e: React.FormEvent) => {
@@ -52,8 +66,11 @@ export const PairingScreen: React.FC<Props> = ({
     if (!emailInput.trim() || !onConnectByEmail) return;
     setLinkingEmail(true);
     try {
-      await onConnectByEmail(emailInput.trim());
-      setEmailInput('');
+      const ok = await onConnectByEmail(emailInput.trim());
+      if (ok) {
+        setStatusMsg('Partner connected by email! 💕');
+        setEmailInput('');
+      }
     } finally {
       setLinkingEmail(false);
     }
@@ -72,10 +89,10 @@ export const PairingScreen: React.FC<Props> = ({
       {/* Background glow orb */}
       <div className="absolute w-96 h-96 bg-[#f5a623]/10 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="max-w-md w-full cosmic-card border border-[#f5a623]/60 rounded-3xl p-8 shadow-2xl text-center relative z-10 my-auto">
+      <div className="max-w-md w-full cosmic-card border border-[#f5a623]/60 rounded-3xl p-6 sm:p-8 shadow-2xl text-center relative z-10 my-auto">
         
         {/* Animated Celestial Icon */}
-        <div className="relative w-16 h-16 mx-auto mb-5 flex items-center justify-center">
+        <div className="relative w-16 h-16 mx-auto mb-4 flex items-center justify-center">
           <div className="w-16 h-16 rounded-full bg-[#f5a623] text-black flex items-center justify-center shadow-lg relative z-10">
             <Sparkles className="w-8 h-8 text-black fill-black" />
           </div>
@@ -85,12 +102,18 @@ export const PairingScreen: React.FC<Props> = ({
           Connect Your Stardust ✨
         </h1>
         <p className="text-slate-400 text-xs mt-1.5 max-w-xs mx-auto leading-relaxed">
-          When your partner opens this website and signs in, she will appear below. Just tap to link your celestial spaces!
+          When your partner opens this website and signs in, she will appear below. Or search her name / enter her email to connect instantly!
         </p>
 
+        {statusMsg && (
+          <div className="my-3 p-2.5 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-xs text-emerald-300 font-bold animate-pulse">
+            {statusMsg}
+          </div>
+        )}
+
         {/* Discovered Active Users Section */}
-        <div className="my-6">
-          <div className="flex items-center justify-between mb-3 px-1">
+        <div className="my-5 space-y-3 text-left">
+          <div className="flex items-center justify-between px-1">
             <span className="text-xs font-serif font-bold text-[#f5a623] flex items-center gap-1.5 uppercase tracking-wider">
               <Stars className="w-4 h-4 text-[#f5a623]" />
               Active Souls on Website:
@@ -104,32 +127,37 @@ export const PairingScreen: React.FC<Props> = ({
             </button>
           </div>
 
-          {availableUsers.length > 0 ? (
-            <div className="space-y-2.5">
-              {availableUsers.map((u) => (
+          <input
+            type="text"
+            placeholder="🔍 Search souls by name or email..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full text-xs text-white bg-black/50 p-2.5 rounded-xl border border-white/10 focus:border-[#f5a623] outline-none"
+          />
+
+          {filteredUsers.length > 0 ? (
+            <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
+              {filteredUsers.map((u) => (
                 <div
                   key={u.uid}
-                  className="flex items-center justify-between p-3.5 bg-black/40 hover:bg-white/5 rounded-2xl border border-white/10 transition-all text-left shadow-md"
+                  className="flex items-center justify-between p-3 bg-black/40 hover:bg-white/5 rounded-2xl border border-white/10 transition-all text-left shadow-md"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <img
                       src={u.photoUrl}
                       alt={u.displayName}
-                      className="w-10 h-10 rounded-full object-cover border-2 border-[#f5a623] ring-2 ring-black"
+                      className="w-9 h-9 rounded-full object-cover border-2 border-[#f5a623] ring-2 ring-black shrink-0"
                     />
-                    <div>
-                      <h4 className="text-xs font-serif font-bold text-white">{u.displayName}</h4>
-                      <p className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
-                        Online in celestial space
-                      </p>
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-serif font-bold text-white truncate">{u.displayName}</h4>
+                      <p className="text-[10px] text-slate-400 truncate">{u.email}</p>
                     </div>
                   </div>
 
                   <button
                     onClick={() => handleConnect(u.uid)}
                     disabled={loadingUid === u.uid}
-                    className="amber-pill-btn text-black text-xs font-bold px-4 py-2 rounded-xl shadow-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 hover:scale-105"
+                    className="amber-pill-btn text-black text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 hover:scale-105 shrink-0 ml-2"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
                     {loadingUid === u.uid ? 'Linking...' : 'Connect'}
@@ -137,11 +165,15 @@ export const PairingScreen: React.FC<Props> = ({
                 </div>
               ))}
             </div>
+          ) : availableUsers.length > 0 ? (
+            <div className="p-4 bg-black/40 rounded-2xl border border-white/10 text-center">
+              <p className="text-xs text-slate-300">No souls match "{searchTerm}".</p>
+            </div>
           ) : (
-            <div className="p-5 bg-black/40 rounded-2xl border border-white/10 text-center">
+            <div className="p-4 bg-black/40 rounded-2xl border border-white/10 text-center">
               <p className="text-xs font-bold text-slate-200">Waiting for partner to enter space...</p>
               <p className="text-[11px] text-slate-400 mt-1">
-                Share this link with her so she can sign in!
+                Enter her email below or share the link!
               </p>
             </div>
           )}
@@ -156,7 +188,7 @@ export const PairingScreen: React.FC<Props> = ({
             <div className="flex items-center gap-2">
               <input
                 type="email"
-                placeholder="e.g. moiz88053@gmail.com"
+                placeholder="e.g. partner@gmail.com"
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
                 className="w-full text-xs font-sans text-white bg-black/50 p-2.5 rounded-xl border border-white/10 focus:border-[#f5a623] outline-none"

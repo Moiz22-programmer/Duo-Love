@@ -101,20 +101,117 @@ export function useDuoLoveStore() {
   const [partner, setPartner] = useState<User | null>(null);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
 
-  // Fetch registered users on DuoLove
+  // Fetch registered users on DuoLove from both Firestore AND Backend API
   const fetchAvailableUsers = useCallback(async () => {
     if (!currentUser) return;
+    const userMap = new Map<string, User>();
+
+    // 1. Fetch from Firestore
     try {
       const { getDocs, query, collection } = await import('firebase/firestore');
       const q = query(collection(db, 'users'));
       const snap = await getDocs(q);
       
-      const list = snap.docs.map(doc => doc.data() as User).filter(u => u.uid !== currentUser.uid);
-      setAvailableUsers(list);
+      snap.docs.forEach((d) => {
+        const u = d.data() as User;
+        if (u && u.uid && u.uid !== currentUser.uid && u.email?.toLowerCase() !== currentUser.email?.toLowerCase()) {
+          userMap.set(u.uid, u);
+        }
+      });
     } catch (e) {
-      console.warn("Failed to fetch available users:", e);
+      console.warn("Firestore available users notice:", e);
     }
+
+    // 2. Fetch from Backend API
+    try {
+      const res = await fetch(`/api/users/available?currentUid=${encodeURIComponent(currentUser.uid)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.users)) {
+          data.users.forEach((u: User) => {
+            if (u && u.uid && u.uid !== currentUser.uid && u.email?.toLowerCase() !== currentUser.email?.toLowerCase()) {
+              if (!userMap.has(u.uid)) {
+                userMap.set(u.uid, u);
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Backend API available users notice:", e);
+    }
+
+    const mergedList = Array.from(userMap.values());
+    setAvailableUsers(mergedList);
   }, [currentUser]);
+
+  // Real-time Firestore snapshot for all users (instant discovery across tabs & browsers)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let unsubscribe = () => {};
+    import('firebase/firestore').then(({ collection, onSnapshot }) => {
+      unsubscribe = onSnapshot(collection(db, 'users'), (snap) => {
+        const list: User[] = [];
+        snap.docs.forEach((docSnap) => {
+          const u = docSnap.data() as User;
+          if (u && u.uid && u.uid !== currentUser.uid && u.email?.toLowerCase() !== currentUser.email?.toLowerCase()) {
+            list.push(u);
+          }
+        });
+        if (list.length > 0) {
+          setAvailableUsers((prev) => {
+            const map = new Map<string, User>();
+            prev.forEach((item) => map.set(item.uid, item));
+            list.forEach((item) => map.set(item.uid, item));
+            return Array.from(map.values()).filter(
+              (u) => u.uid !== currentUser.uid && u.email?.toLowerCase() !== currentUser.email?.toLowerCase()
+            );
+          });
+        }
+      }, (err) => {
+        console.warn("Real-time users snapshot notice:", err);
+      });
+    }).catch(() => {});
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // Real-time Firestore snapshot on current user doc to instantly detect incoming couple pairing
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let unsubscribe = () => {};
+    import('firebase/firestore').then(({ doc, onSnapshot, getDoc }) => {
+      unsubscribe = onSnapshot(doc(db, 'users', currentUser.uid), async (userSnap) => {
+        if (!userSnap.exists()) return;
+        const freshUser = userSnap.data() as User;
+        
+        if (freshUser.coupleId && (!coupleSpace || coupleSpace.id !== freshUser.coupleId)) {
+          try {
+            const coupleSnap = await getDoc(doc(db, 'couples', freshUser.coupleId));
+            if (coupleSnap.exists()) {
+              const cData = coupleSnap.data() as CoupleSpace;
+              saveCoupleSpace(cData);
+              const partnerId = cData.members?.find((m) => m !== currentUser.uid);
+              if (partnerId) {
+                const partnerSnap = await getDoc(doc(db, 'users', partnerId));
+                if (partnerSnap.exists()) {
+                  setPartner(partnerSnap.data() as User);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn("Incoming couple sync notice:", e);
+          }
+        }
+      }, (err) => {
+        console.warn("Real-time user snapshot notice:", err);
+      });
+    }).catch(() => {});
+
+    return () => unsubscribe();
+  }, [currentUser, coupleSpace]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [presenceMap, setPresenceMap] = useState<Record<string, Presence>>({});
   const [activeCall, setActiveCall] = useState<CallSignal | null>(null);
@@ -135,7 +232,14 @@ export function useDuoLoveStore() {
     setCurrentUser(user);
     if (user) {
       sessionStorage.setItem('duolove_current_user', JSON.stringify(user));
+      // Save to Firestore
       setDoc(doc(db, 'users', user.uid), user, { merge: true }).catch(e => console.warn("Firestore user sync:", e));
+      // Sync to Express Server backend
+      fetch('/api/users/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(user),
+      }).catch(() => {});
     } else {
       sessionStorage.removeItem('duolove_current_user');
     }
@@ -171,105 +275,6 @@ export function useDuoLoveStore() {
       console.warn("Failed to refresh couple info from Firestore:", e);
     }
   }, [currentUser, saveCoupleSpace]);
-
-  // 1-Click Direct Connect with a discovered user
-  const directConnectUsers = useCallback(async (targetUid: string) => {
-    if (!currentUser) return false;
-    try {
-      const { getDoc } = await import('firebase/firestore');
-      
-      const [userSnap, targetSnap] = await Promise.all([
-        getDoc(doc(db, 'users', currentUser.uid)),
-        getDoc(doc(db, 'users', targetUid))
-      ]);
-      
-      if (!userSnap.exists() || !targetSnap.exists()) return false;
-      const targetUser = targetSnap.data() as User;
-      
-      let coupleId = targetUser.coupleId || userSnap.data().coupleId;
-      let coupleSpaceData: CoupleSpace;
-      
-      if (coupleId) {
-        const coupleSnap = await getDoc(doc(db, 'couples', coupleId));
-        coupleSpaceData = coupleSnap.data() as CoupleSpace;
-        if (!coupleSpaceData.members.includes(currentUser.uid)) {
-          coupleSpaceData.members.push(currentUser.uid);
-          await updateDoc(doc(db, 'couples', coupleId), { members: coupleSpaceData.members });
-        }
-      } else {
-        coupleId = `couple_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-        coupleSpaceData = {
-          id: coupleId,
-          members: [currentUser.uid, targetUid],
-          joinToken: Math.random().toString(36).substring(2, 10),
-          createdAt: Date.now(),
-          anniversaryDate: new Date().toISOString().split('T')[0]
-        };
-        await setDoc(doc(db, 'couples', coupleId), coupleSpaceData);
-      }
-      
-      const updatedUser = { ...currentUser, coupleId };
-      await updateDoc(doc(db, 'users', currentUser.uid), { coupleId });
-      await updateDoc(doc(db, 'users', targetUid), { coupleId });
-      
-      saveUser(updatedUser);
-      saveCoupleSpace(coupleSpaceData);
-      setPartner(targetUser);
-      return true;
-    } catch (e) {
-      console.error("Direct connect failed:", e);
-    }
-    return false;
-  }, [currentUser, saveUser, saveCoupleSpace]);
-
-  // Connect directly with a partner by Email (e.g. moiz88053@gmail.com)
-  const connectPartnerByEmail = useCallback(async (partnerEmail: string) => {
-    if (!currentUser || !partnerEmail) return false;
-    try {
-      const { getDocs, query, where, collection, getDoc } = await import('firebase/firestore');
-      const q = query(collection(db, 'users'), where('email', '==', partnerEmail.trim().toLowerCase()));
-      const snap = await getDocs(q);
-      
-      if (snap.empty) return false;
-      
-      const targetUser = snap.docs[0].data() as User;
-      const targetUid = targetUser.uid;
-      
-      let coupleId = targetUser.coupleId || currentUser.coupleId;
-      let coupleSpaceData: CoupleSpace;
-      
-      if (coupleId) {
-        const coupleSnap = await getDoc(doc(db, 'couples', coupleId));
-        coupleSpaceData = coupleSnap.data() as CoupleSpace;
-        if (!coupleSpaceData.members.includes(currentUser.uid)) {
-          coupleSpaceData.members.push(currentUser.uid);
-          await updateDoc(doc(db, 'couples', coupleId), { members: coupleSpaceData.members });
-        }
-      } else {
-        coupleId = `couple_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-        coupleSpaceData = {
-          id: coupleId,
-          members: [currentUser.uid, targetUid],
-          joinToken: Math.random().toString(36).substring(2, 10),
-          createdAt: Date.now(),
-          anniversaryDate: new Date().toISOString().split('T')[0]
-        };
-        await setDoc(doc(db, 'couples', coupleId), coupleSpaceData);
-      }
-      
-      const updatedUser = { ...currentUser, coupleId };
-      await updateDoc(doc(db, 'users', currentUser.uid), { coupleId });
-      await updateDoc(doc(db, 'users', targetUid), { coupleId });
-      
-      saveUser(updatedUser);
-      saveCoupleSpace(coupleSpaceData);
-      setPartner(targetUser);
-      return true;
-    } catch (e) {
-      console.error("Connect by email failed:", e);
-    }
-    return false;
-  }, [currentUser, saveUser, saveCoupleSpace]);
 
   // Fetch messages from Firestore & backend API with intelligent merge
   const fetchMessages = useCallback(async (cId: string) => {
@@ -357,6 +362,201 @@ export function useDuoLoveStore() {
       });
     }
   }, []);
+
+  // 1-Click Direct Connect with a discovered user
+  const directConnectUsers = useCallback(async (targetUid: string) => {
+    if (!currentUser) return false;
+    try {
+      // 1. Call Backend API
+      try {
+        const apiRes = await fetch('/api/couples/direct-connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userA: currentUser.uid, userB: targetUid }),
+        });
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (apiData.couple) saveCoupleSpace(apiData.couple);
+          if (apiData.partner) setPartner(apiData.partner);
+        }
+      } catch (apiErr) {
+        console.warn("Backend direct connect notice:", apiErr);
+      }
+
+      // 2. Firestore Sync
+      const { getDoc, setDoc, updateDoc, doc } = await import('firebase/firestore');
+      
+      const [userSnap, targetSnap] = await Promise.all([
+        getDoc(doc(db, 'users', currentUser.uid)),
+        getDoc(doc(db, 'users', targetUid))
+      ]);
+      
+      let targetUser: User;
+      if (targetSnap.exists()) {
+        targetUser = targetSnap.data() as User;
+      } else {
+        const foundAvail = availableUsers.find(u => u.uid === targetUid);
+        targetUser = foundAvail || {
+          uid: targetUid,
+          displayName: 'Soulmate',
+          email: `${targetUid}@duolove.app`,
+          photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+          createdAt: Date.now(),
+        };
+      }
+      
+      let coupleId = targetUser.coupleId || (userSnap.exists() ? userSnap.data()?.coupleId : null);
+      let coupleSpaceData: CoupleSpace;
+      
+      if (coupleId) {
+        const coupleSnap = await getDoc(doc(db, 'couples', coupleId));
+        if (coupleSnap.exists()) {
+          coupleSpaceData = coupleSnap.data() as CoupleSpace;
+          if (!coupleSpaceData.members.includes(currentUser.uid)) {
+            coupleSpaceData.members.push(currentUser.uid);
+          }
+          if (!coupleSpaceData.members.includes(targetUid)) {
+            coupleSpaceData.members.push(targetUid);
+          }
+          await updateDoc(doc(db, 'couples', coupleId), { members: coupleSpaceData.members });
+        } else {
+          coupleSpaceData = {
+            id: coupleId,
+            members: [currentUser.uid, targetUid],
+            joinToken: Math.random().toString(36).substring(2, 10),
+            createdAt: Date.now(),
+            anniversaryDate: new Date().toISOString().split('T')[0]
+          };
+          await setDoc(doc(db, 'couples', coupleId), coupleSpaceData);
+        }
+      } else {
+        coupleId = `couple_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        coupleSpaceData = {
+          id: coupleId,
+          members: [currentUser.uid, targetUid],
+          joinToken: Math.random().toString(36).substring(2, 10),
+          createdAt: Date.now(),
+          anniversaryDate: new Date().toISOString().split('T')[0]
+        };
+        await setDoc(doc(db, 'couples', coupleId), coupleSpaceData);
+      }
+      
+      const updatedUser = { ...currentUser, coupleId };
+      await setDoc(doc(db, 'users', currentUser.uid), { ...updatedUser, coupleId }, { merge: true });
+      await setDoc(doc(db, 'users', targetUid), { ...targetUser, coupleId }, { merge: true });
+      
+      saveUser(updatedUser);
+      saveCoupleSpace(coupleSpaceData);
+      setPartner(targetUser);
+      fetchMessages(coupleId);
+      return true;
+    } catch (e) {
+      console.error("Direct connect failed:", e);
+    }
+    return false;
+  }, [currentUser, availableUsers, saveUser, saveCoupleSpace, fetchMessages]);
+
+  // Connect directly with a partner by Email (e.g. partner@example.com)
+  const connectPartnerByEmail = useCallback(async (partnerEmail: string) => {
+    if (!currentUser || !partnerEmail.trim()) return false;
+    const cleanEmail = partnerEmail.trim().toLowerCase();
+    
+    try {
+      // 1. Call Backend API
+      let apiPartner: User | null = null;
+      let apiCouple: CoupleSpace | null = null;
+      try {
+        const apiRes = await fetch('/api/couples/connect-by-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentUid: currentUser.uid, partnerEmail: cleanEmail }),
+        });
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (apiData.partner) apiPartner = apiData.partner;
+          if (apiData.couple) apiCouple = apiData.couple;
+        }
+      } catch (err) {
+        console.warn("Backend connect-by-email notice:", err);
+      }
+
+      // 2. Firestore Lookup & Link
+      const { getDocs, query, where, collection, getDoc, setDoc, updateDoc, doc } = await import('firebase/firestore');
+      const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
+      const snap = await getDocs(q);
+      
+      let targetUser: User;
+      if (!snap.empty) {
+        targetUser = snap.docs[0].data() as User;
+      } else if (apiPartner) {
+        targetUser = apiPartner;
+      } else {
+        // Pre-create placeholder user for this partner so they are automatically paired on sign in
+        const placeholderUid = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        
+        targetUser = {
+          uid: placeholderUid,
+          email: cleanEmail,
+          displayName: cleanEmail.split('@')[0].charAt(0).toUpperCase() + cleanEmail.split('@')[0].slice(1),
+          photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+          createdAt: Date.now(),
+          statusMessage: 'In love 💕',
+        };
+      }
+      
+      const targetUid = targetUser.uid;
+      let coupleId = targetUser.coupleId || currentUser.coupleId || apiCouple?.id;
+      let coupleSpaceData: CoupleSpace;
+      
+      if (coupleId) {
+        const coupleSnap = await getDoc(doc(db, 'couples', coupleId));
+        if (coupleSnap.exists()) {
+          coupleSpaceData = coupleSnap.data() as CoupleSpace;
+          if (!coupleSpaceData.members.includes(currentUser.uid)) {
+            coupleSpaceData.members.push(currentUser.uid);
+          }
+          if (!coupleSpaceData.members.includes(targetUid)) {
+            coupleSpaceData.members.push(targetUid);
+          }
+          await updateDoc(doc(db, 'couples', coupleId), { members: coupleSpaceData.members });
+        } else {
+          coupleSpaceData = apiCouple || {
+            id: coupleId,
+            members: [currentUser.uid, targetUid],
+            joinToken: Math.random().toString(36).substring(2, 10),
+            createdAt: Date.now(),
+            anniversaryDate: new Date().toISOString().split('T')[0]
+          };
+          await setDoc(doc(db, 'couples', coupleId), coupleSpaceData);
+        }
+      } else {
+        coupleId = `couple_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        coupleSpaceData = {
+          id: coupleId,
+          members: [currentUser.uid, targetUid],
+          joinToken: Math.random().toString(36).substring(2, 10),
+          createdAt: Date.now(),
+          anniversaryDate: new Date().toISOString().split('T')[0]
+        };
+        await setDoc(doc(db, 'couples', coupleId), coupleSpaceData);
+      }
+      
+      const updatedUser = { ...currentUser, coupleId };
+      const updatedPartner = { ...targetUser, coupleId };
+      
+      await setDoc(doc(db, 'users', currentUser.uid), updatedUser, { merge: true });
+      await setDoc(doc(db, 'users', targetUid), updatedPartner, { merge: true });
+      
+      saveUser(updatedUser);
+      saveCoupleSpace(coupleSpaceData);
+      setPartner(updatedPartner);
+      fetchMessages(coupleId);
+      return true;
+    } catch (e) {
+      console.error("Connect by email failed:", e);
+    }
+    return false;
+  }, [currentUser, saveUser, saveCoupleSpace, fetchMessages]);
 
   const loginWithGoogle = useCallback(async (selectedUser?: User) => {
     if (selectedUser) {
@@ -496,9 +696,7 @@ export function useDuoLoveStore() {
       };
     } catch (fbErr: any) {
       console.warn("Firebase Auth fast fallback active:", fbErr?.message || fbErr);
-      const uid = cleanEmail.includes('moiz')
-        ? (cleanEmail.includes('770') ? 'usr_moiz' : 'usr_moiz_alt')
-        : `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const uid = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       
       finalUser = {
         uid,
@@ -560,9 +758,8 @@ export function useDuoLoveStore() {
     }
 
     if (!userData) {
-      const isMoiz = cleanEmail.includes('moiz');
-      uid = isMoiz ? (cleanEmail.includes('770') ? 'usr_moiz' : 'usr_moiz_alt') : `usr_${Date.now()}`;
-      const name = isMoiz ? 'Abdul Moiz' : cleanEmail.split('@')[0].charAt(0).toUpperCase() + cleanEmail.split('@')[0].slice(1);
+      uid = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const name = cleanEmail.split('@')[0].charAt(0).toUpperCase() + cleanEmail.split('@')[0].slice(1);
       userData = {
         uid,
         email: cleanEmail,

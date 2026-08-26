@@ -241,43 +241,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           <div className="space-y-3 pt-2">
-            {/* Quick 1-Tap Profiles */}
-            <div className="bg-white/[0.04] p-3 rounded-2xl border border-white/10 text-left space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-[#f5a623] flex items-center gap-1">
-                  <Sparkles className="w-3 h-3" /> Quick 1-Tap Account
-                </span>
-                <span className="text-[10px] text-slate-400">Direct Entry</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  onSignInWithGoogle({
-                    uid: 'usr_moiz',
-                    displayName: 'Abdul Moiz',
-                    email: 'moiz77053@gmail.com',
-                    photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
-                    createdAt: Date.now(),
-                    statusMessage: 'In celestial love with you 💕',
-                  });
-                }}
-                className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.06] hover:bg-[#f5a623]/20 border border-white/10 hover:border-[#f5a623]/40 text-left transition-all cursor-pointer group"
-              >
-                <img
-                  src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80"
-                  alt="Abdul Moiz"
-                  className="w-8 h-8 rounded-full object-cover ring-1 ring-amber-400/50"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-bold text-white group-hover:text-[#f5a623] truncate">Abdul Moiz</p>
-                    <span className="text-[10px] text-[#f5a623] font-medium">Click to Enter</span>
-                  </div>
-                  <p className="text-[10px] text-slate-400 truncate">moiz77053@gmail.com</p>
-                </div>
-              </button>
-            </div>
-
             {/* Direct Email / Google Quick Login */}
             <form
               onSubmit={(e) => {
@@ -286,10 +249,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 const email = loginEmail.trim();
                 const displayName = email.split('@')[0];
                 const formattedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
-                const isMoiz = email.toLowerCase().includes('moiz');
                 const user: User = {
-                  uid: isMoiz ? 'usr_moiz' : `usr_${Date.now()}`,
-                  displayName: isMoiz ? 'Abdul Moiz' : formattedName,
+                  uid: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+                  displayName: formattedName,
                   email: email.toLowerCase(),
                   photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
                   createdAt: Date.now(),
@@ -297,7 +259,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 };
                 onSignInWithGoogle(user);
               }}
-              className="space-y-2 pt-1"
+              className="space-y-2"
             >
               <div className="relative text-left">
                 <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
@@ -305,7 +267,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   type="email"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="Enter your Gmail or Email (e.g. moiz77053@gmail.com)"
+                  placeholder="Enter your Email (e.g. yourname@gmail.com)"
                   className="w-full pl-9 pr-3 py-2.5 bg-black/40 rounded-xl border border-white/15 text-xs text-white placeholder:text-slate-500 outline-none focus:border-[#f5a623]"
                 />
               </div>
@@ -313,7 +275,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 type="submit"
                 className="w-full amber-pill-btn py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-all cursor-pointer shadow-md shadow-amber-500/20"
               >
-                <span>Enter with This Account</span>
+                <span>Enter with Email</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </form>

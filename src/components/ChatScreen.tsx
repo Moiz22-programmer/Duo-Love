@@ -1377,7 +1377,7 @@ export const ChatScreen: React.FC<Props> = ({
               <div className="flex items-center gap-2">
                 <input
                   type="email"
-                  placeholder="e.g. moiz88053@gmail.com"
+                  placeholder="e.g. partner@gmail.com"
                   value={partnerEmailInput}
                   onChange={(e) => setPartnerEmailInput(e.target.value)}
                   className="flex-1 bg-white/[0.05] border border-white/15 focus:border-[#f5a623] text-sm text-white px-3.5 py-2 rounded-xl outline-none"
