@@ -80,7 +80,7 @@ export const GalleryScreen: React.FC<Props> = ({
               </h1>
             </div>
             <p className="text-xs text-slate-400 mt-1 font-serif">
-              Captured moments across the stars with {partner.displayName.split(' ')[0]} ({imageMessages.length} memories)
+              Captured moments across the stars with {partner?.displayName?.split(' ')[0] || 'Partner'} ({imageMessages.length} memories)
             </p>
           </div>
 
@@ -109,7 +109,7 @@ export const GalleryScreen: React.FC<Props> = ({
                   filterSender === 'partner' ? 'amber-pill-btn text-black font-bold shadow-md' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                {partner.displayName.split(' ')[0]}
+                {partner?.displayName?.split(' ')[0] || 'Partner'}
               </button>
             </div>
 
@@ -199,13 +199,13 @@ export const GalleryScreen: React.FC<Props> = ({
             <div className="p-4 bg-[#0b0914] border-b border-white/10 flex items-center justify-between text-white">
               <div className="flex items-center gap-2.5">
                 <img
-                  src={selectedImage.senderId === currentUser.uid ? currentUser.photoUrl : partner.photoUrl}
+                  src={selectedImage.senderId === currentUser.uid ? currentUser.photoUrl : partner?.photoUrl || ""}
                   alt="Uploader"
                   className="w-8 h-8 rounded-full object-cover ring-2 ring-[#f5a623]/60"
                 />
                 <div>
                   <h4 className="text-xs font-serif font-bold text-white">
-                    Shared by {selectedImage.senderId === currentUser.uid ? 'You' : partner.displayName}
+                    Shared by {selectedImage.senderId === currentUser.uid ? 'You' : partner?.displayName || 'Partner'}
                   </h4>
                   <p className="text-[10px] text-slate-400">
                     {new Date(selectedImage.createdAt).toLocaleString()}

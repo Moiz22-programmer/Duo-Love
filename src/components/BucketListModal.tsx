@@ -239,7 +239,7 @@ export const BucketListModal: React.FC<BucketListModalProps> = ({
                   Couple Bucket List & Dreams
                 </h3>
                 <p className="text-xs text-slate-400 font-serif">
-                  Shared goals, romantic adventures & milestones with {partner.displayName}
+                  Shared goals, romantic adventures & milestones with {partner?.displayName || 'Partner'}
                 </p>
               </div>
             </div>

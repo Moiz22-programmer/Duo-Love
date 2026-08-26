@@ -414,7 +414,7 @@ export const ScrapbookScreen: React.FC<Props> = ({
                   Our Digital Scrapbook <Sparkles className="w-4 h-4 text-[#f5a623] animate-pulse" />
                 </h1>
                 <p className="text-xs text-slate-400 font-serif">
-                  Timeless album capturing memories, shared photos & chat quotes with {partner.displayName.split(' ')[0]}
+                  Timeless album capturing memories, shared photos & chat quotes with {partner?.displayName?.split(' ')[0] || 'Partner'}
                 </p>
               </div>
             </div>
@@ -628,14 +628,14 @@ export const ScrapbookScreen: React.FC<Props> = ({
                                       className="w-8 h-8 rounded-full object-cover ring-2 ring-[#f5a623]"
                                     />
                                     <img
-                                      src={partner.photoUrl}
-                                      alt={partner.displayName}
+                                      src={partner?.photoUrl || ""}
+                                      alt={partner?.displayName || "Partner"}
                                       className="w-8 h-8 rounded-full object-cover ring-2 ring-[#f5a623]"
                                     />
                                   </div>
                                   <div>
                                     <span className="text-xs font-serif font-bold text-white block">
-                                      {currentUser.displayName.split(' ')[0]} & {partner.displayName.split(' ')[0]}
+                                      {currentUser.displayName.split(' ')[0]} & {partner?.displayName?.split(' ')[0] || 'Partner'}
                                     </span>
                                     <span className="text-[10px] text-[#f5a623] font-serif">
                                       Two souls in one private universe ✨

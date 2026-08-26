@@ -163,7 +163,7 @@ export const WaxSealedLetterModal: React.FC<WaxSealedLetterModalProps> = ({
       id: `letter_${Date.now()}`,
       senderName: currentUser.displayName,
       senderPhoto: currentUser.photoUrl,
-      recipientName: partner.displayName,
+      recipientName: partner?.displayName || 'Partner',
       title: title.trim(),
       bodyText: bodyText.trim(),
       audioUrl: audioBlobUrl || undefined,

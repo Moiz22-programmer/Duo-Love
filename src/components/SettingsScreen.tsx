@@ -962,7 +962,7 @@ export const SettingsScreen: React.FC<Props> = ({
             </div>
             <h3 className="text-base font-bold text-white">Disconnect Realm?</h3>
             <p className="text-xs text-slate-400">
-              This will unpair you from {partner.displayName}. You can reconnect anytime by sharing your link.
+              This will unpair you from {partner?.displayName || 'Partner'}. You can reconnect anytime by sharing your link.
             </p>
             <div className="flex items-center gap-3 pt-2">
               <button

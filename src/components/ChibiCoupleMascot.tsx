@@ -111,8 +111,8 @@ export const ChibiCoupleMascot: React.FC<ChibiCoupleMascotProps> = ({
 
     // Default Speech Text per Action
     let defaultSpeech = '';
-    const actorName = actor === 'boy' ? currentUser.displayName.split(' ')[0] : partner.displayName.split(' ')[0];
-    const targetName = actor === 'boy' ? partner.displayName.split(' ')[0] : currentUser.displayName.split(' ')[0];
+    const actorName = actor === 'boy' ? currentUser.displayName.split(' ')[0] : partner?.displayName?.split(' ')[0] || 'Partner';
+    const targetName = actor === 'boy' ? partner?.displayName?.split(' ')[0] || 'Partner' : currentUser.displayName.split(' ')[0];
 
     switch (actionType) {
       case 'kiss':
@@ -523,7 +523,7 @@ export const ChibiCoupleMascot: React.FC<ChibiCoupleMascotProps> = ({
           >
             <FullBodyHumanoidAvatar
               gender="girl"
-              name={partner?.displayName ? partner.displayName.split(' ')[0] : 'Waiting Partner'}
+              name={partner?.displayName ? partner?.displayName?.split(' ')[0] || 'Partner' : 'Waiting Partner'}
               actionType={activeCommand.type}
               actor={activeCommand.actor}
               isMoving={isWalking}
