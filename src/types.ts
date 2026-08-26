@@ -2,6 +2,7 @@ export interface User {
   uid: string;
   displayName: string;
   email: string;
+  password?: string;
   photoUrl: string;
   coupleId?: string;
   createdAt: number;

@@ -190,69 +190,42 @@ export const SignInScreen: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* 2-Tab Side-by-Side Quick Switcher */}
+        {/* Quick 1-Tap Account Access */}
         <div className="bg-gradient-to-r from-amber-500/10 via-purple-500/10 to-amber-500/10 border border-[#f5a623]/30 rounded-2xl p-3 mb-4 text-left">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5 text-xs font-serif font-bold text-[#f5a623]">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Multi-Tab Testing Profiles</span>
+              <span>Quick Account Access</span>
             </div>
-            <span className="text-[10px] text-slate-400">Isolated per tab</span>
+            <span className="text-[10px] text-slate-400">1-Tap Login</span>
           </div>
-          <p className="text-[11px] text-slate-300 leading-tight mb-2.5">
-            Open 2 browser tabs. Click <strong>Abdul Moiz</strong> in Tab 1, and <strong>Fatima</strong> in Tab 2 to test live chat, reactions & calls:
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                onSignInWithGoogle({
-                  uid: 'usr_moiz',
-                  displayName: 'Abdul Moiz',
-                  email: 'moiz77053@gmail.com',
-                  photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
-                  createdAt: Date.now(),
-                  statusMessage: 'In celestial love with you 💕',
-                });
-              }}
-              className="flex items-center gap-2 p-2 rounded-xl bg-white/[0.07] hover:bg-[#f5a623]/20 border border-white/10 hover:border-[#f5a623]/40 text-left transition-all cursor-pointer group"
-            >
-              <img
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80"
-                alt="Abdul Moiz"
-                className="w-8 h-8 rounded-full object-cover ring-1 ring-amber-400/50"
-              />
-              <div className="min-w-0">
+          <button
+            type="button"
+            onClick={() => {
+              onSignInWithGoogle({
+                uid: 'usr_moiz',
+                displayName: 'Abdul Moiz',
+                email: 'moiz77053@gmail.com',
+                photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+                createdAt: Date.now(),
+                statusMessage: 'In celestial love with you 💕',
+              });
+            }}
+            className="w-full flex items-center gap-3 p-2 rounded-xl bg-white/[0.07] hover:bg-[#f5a623]/20 border border-white/10 hover:border-[#f5a623]/40 text-left transition-all cursor-pointer group"
+          >
+            <img
+              src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80"
+              alt="Abdul Moiz"
+              className="w-8 h-8 rounded-full object-cover ring-1 ring-amber-400/50"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between">
                 <p className="text-xs font-bold text-white group-hover:text-[#f5a623] truncate">Abdul Moiz</p>
-                <p className="text-[9px] text-slate-400">Tab 1 (User)</p>
+                <span className="text-[10px] text-[#f5a623] font-semibold">Enter</span>
               </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                onSignInWithGoogle({
-                  uid: 'usr_fatima',
-                  displayName: 'Fatima',
-                  email: 'fatima@duolove.app',
-                  photoUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&auto=format&fit=crop&q=80',
-                  createdAt: Date.now(),
-                  statusMessage: 'Forever & always in starlight ✨',
-                });
-              }}
-              className="flex items-center gap-2 p-2 rounded-xl bg-white/[0.07] hover:bg-purple-500/20 border border-white/10 hover:border-purple-400/40 text-left transition-all cursor-pointer group"
-            >
-              <img
-                src="https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&auto=format&fit=crop&q=80"
-                alt="Fatima"
-                className="w-8 h-8 rounded-full object-cover ring-1 ring-purple-400/50"
-              />
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-white group-hover:text-purple-300 truncate">Fatima</p>
-                <p className="text-[9px] text-slate-400">Tab 2 (Partner)</p>
-              </div>
-            </button>
-          </div>
+              <p className="text-[10px] text-slate-400">moiz77053@gmail.com</p>
+            </div>
+          </button>
         </div>
 
         {/* Auth Mode Toggle Tabs (Sign In vs Register) */}
